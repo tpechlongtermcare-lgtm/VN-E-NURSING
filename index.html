@@ -227,7 +227,10 @@ body{
 
     <div class="err" v-if="state==='error'">
       <h3>這一頁的圖片讀不到</h3>
-      <code>{{ imgUrl }}</code>
+      <code>抓取：{{ imgUrl }}
+頁面：{{ href }}
+base：{{ baseURI }}
+回應：{{ diag || '偵測中…' }}</code>
       <p>
         檢查 <b>slides/</b> 資料夾裡有沒有 <b>{{ cur.file }}{{ ext }}</b>，
         以及大小寫是否一致（GitHub Pages 有分大小寫）。
@@ -374,6 +377,9 @@ createApp({
       baseLocked: false,  // 有一張成功載入後就鎖定 base
       nonce: 0,
       ext: CONFIG.ext,
+      href: location.href,
+      baseURI: document.baseURI,
+      diag: '',
       barOn: true,
       grid: false,
       portrait: false,
@@ -459,7 +465,18 @@ createApp({
       }
       clearTimeout(this._slow);
       this.state = 'error';
+      this.probe();
     },
+
+    // 失敗時再用 fetch 打一次，把 HTTP 狀態或錯誤型別顯示出來
+    probe() {
+      this.diag = '';
+      const url = this.imgUrl;
+      fetch(url, { cache: 'no-store' })
+        .then(r => { this.diag = r.status + ' ' + (r.statusText || ''); })
+        .catch(e => { this.diag = 'fetch 擋掉：' + (e && e.name) + ' / ' + (e && e.message); });
+    },
+
     retry() {
       this.nonce = Date.now();
       this.beginLoad();
