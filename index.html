@@ -6,11 +6,11 @@
 <meta name="theme-color" content="#0e1a18">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>智慧照護成果 | Chăm sóc thông minh</title>
+<title>智慧護理 | Điều dưỡng thông minh — 臺北市立聯合醫院仁愛院區</title>
 
 <!-- ══════════════════════════════════════════════════════════════════
      簡報播放器   © 鄭瑞賢 製作・版權所有
-     要改的東西只有下面 <script> 最上面的 CONFIG 與 SLIDES 兩塊。
+     要改的東西只有檔案下半部 JS 區塊最上面的 CONFIG 與 SLIDES 兩塊。
      ══════════════════════════════════════════════════════════════ -->
 
 <style>
@@ -58,6 +58,30 @@ body{
   animation:spin .8s linear infinite;pointer-events:none;
 }
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.slow{
+  position:absolute;top:calc(50% + 40px);font-size:12px;color:var(--ink-dim);
+  text-align:center;line-height:1.7;padding:0 24px;pointer-events:none;
+}
+
+/* ── 載入失敗 ────────────────────────────────────────── */
+.err{
+  position:absolute;max-width:min(560px,86vw);padding:22px 24px;
+  background:rgba(20,36,33,.94);border:1px solid rgba(239,107,114,.4);
+  border-radius:14px;text-align:center;
+}
+.err h3{font-size:14px;color:var(--coral);margin-bottom:10px;letter-spacing:.3px}
+.err code{
+  display:block;font-size:11px;color:var(--ink-dim);word-break:break-all;
+  background:rgba(0,0,0,.3);padding:9px 11px;border-radius:7px;margin-bottom:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.6;text-align:left;
+}
+.err p{font-size:12px;color:var(--ink-dim);line-height:1.7;margin-bottom:14px}
+.err button{
+  border:0;background:var(--teal);color:#06211d;font-weight:700;font-size:13px;
+  padding:10px 22px;border-radius:999px;cursor:pointer;font-family:inherit;
+}
+.err button:active{background:#258a7c}
 
 /* ── 點擊區（左三分之一上一頁 / 右三分之一下一頁 / 中間切控制列）── */
 .zones{position:absolute;inset:0;display:flex}
@@ -193,9 +217,24 @@ body{
   <div class="stage"
        @touchstart.passive="tStart" @touchend.passive="tEnd"
        @mousemove="wake">
-    <div class="spinner" v-if="loading"></div>
-    <img :src="src(cur)" :alt="cur.title" :class="{loading}"
-         @load="loading=false" draggable="false">
+    <div class="spinner" v-if="state==='loading'"></div>
+    <div class="slow" v-if="state==='loading' && slow">
+      圖片載入中，比預期久<br>Đang tải ảnh…
+    </div>
+
+    <img :src="imgUrl" :alt="cur.title" :class="{loading:state!=='ok'}"
+         @load="onLoad" @error="onErr" draggable="false">
+
+    <div class="err" v-if="state==='error'">
+      <h3>這一頁的圖片讀不到</h3>
+      <code>{{ imgUrl }}</code>
+      <p>
+        檢查 <b>slides/</b> 資料夾裡有沒有 <b>{{ cur.file }}{{ ext }}</b>，
+        以及大小寫是否一致（GitHub Pages 有分大小寫）。
+      </p>
+      <button @click="retry">重試</button>
+    </div>
+
     <div class="zones">
       <div @click="prev"></div>
       <div @click="toggleBar"></div>
@@ -283,9 +322,7 @@ const CONFIG = {
    ═══════════════════════════════════════════════════════════════ */
 const SLIDES = [
 
-  /* ── 封面：圖檔命名成 00.jpg 放進 slides/ 後，把下面這行的 // 拿掉 ──
-  { file:'00', ch:'', title:'封面' },
-  ─────────────────────────────────────────────────────────────── */
+  { file:'00', ch:'',                title:'封面｜智慧護理' },
 
   { file:'01', ch:'壹、智慧病房',    title:'電子床頭卡' },
   { file:'02', ch:'壹、智慧病房',    title:'智慧電視｜燈光與窗簾控制' },
@@ -317,9 +354,7 @@ const SLIDES = [
   { file:'23', ch:'陸、智慧長照',    title:'批號效期管理' },
   { file:'24', ch:'陸、智慧長照',    title:'快速盤點補貨' },
 
-  /* ── 尾頁：圖檔命名成 25.jpg 放進 slides/ 後，把下面這行的 // 拿掉 ──
-  { file:'25', ch:'', title:'謝謝聆聽' },
-  ─────────────────────────────────────────────────────────────── */
+  { file:'25', ch:'',                title:'謝謝聆聽｜讓照護更有溫度' },
 
 ];
 
@@ -333,7 +368,12 @@ createApp({
     return {
       slides: SLIDES,
       i: 0,
-      loading: true,
+      state: 'loading',   // loading | ok | error
+      slow: false,
+      baseIdx: 0,         // 路徑容錯：試過的 base 之一
+      baseLocked: false,  // 有一張成功載入後就鎖定 base
+      nonce: 0,
+      ext: CONFIG.ext,
       barOn: true,
       grid: false,
       portrait: false,
@@ -342,13 +382,21 @@ createApp({
       fsOK: !!(document.documentElement.requestFullscreen ||
                document.documentElement.webkitRequestFullscreen),
       curCell: null,
-      _timer: null,
+      _timer: null, _slow: null,
       _tx: 0, _ty: 0
     };
   },
 
   computed: {
-    cur() { return this.slides[this.i] || { title: '', ch: '' }; },
+    cur() { return this.slides[this.i] || { title: '', ch: '', file: '' }; },
+
+    // 大多數情況第一個就對（一般相對路徑）。
+    // 少數主機不給結尾斜線或把站台掛在根目錄，才會用到後面兩個。
+    bases() {
+      const p = location.pathname;
+      return ['', p.replace(/\/?$/, '/'), '/'];
+    },
+    imgUrl() { return this.src(this.cur); },
     groups() {
       const out = [];
       this.slides.forEach((s, idx) => {
@@ -363,9 +411,8 @@ createApp({
 
   watch: {
     i(n) {
-      this.loading = true;
+      this.beginLoad();
       history.replaceState(null, '', '#' + (n + 1));
-      this.preload();
       this.wake();
     },
     grid(on) {
@@ -377,13 +424,45 @@ createApp({
   },
 
   methods: {
-    src(s)   { return CONFIG.dir + s.file + CONFIG.ext; },
-    thumb(s) { return CONFIG.dir + CONFIG.thumbPre + s.file + CONFIG.ext; },
+    src(s) {
+      const q = this.nonce ? '?r=' + this.nonce : '';
+      return this.bases[this.baseIdx] + CONFIG.dir + s.file + CONFIG.ext + q;
+    },
+    thumb(s) {
+      return this.bases[this.baseIdx] + CONFIG.dir + CONFIG.thumbPre + s.file + CONFIG.ext;
+    },
     thumbFail(e, s) {
       // 沒有縮圖檔就退回用原圖
       if (e.target.dataset.fb) return;
       e.target.dataset.fb = '1';
       e.target.src = this.src(s);
+    },
+
+    beginLoad() {
+      this.state = 'loading';
+      this.slow = false;
+      clearTimeout(this._slow);
+      this._slow = setTimeout(() => { this.slow = true; }, 6000);
+    },
+    onLoad() {
+      this.state = 'ok';
+      this.slow = false;
+      this.baseLocked = true;      // 這個 base 可用，之後不再換
+      clearTimeout(this._slow);
+      this.preload();              // 載完目前這張才去預抓下一張
+    },
+    onErr() {
+      // 還沒確定過可用路徑的話，依序換下一個 base 再試
+      if (!this.baseLocked && this.baseIdx < this.bases.length - 1) {
+        this.baseIdx++;
+        return;
+      }
+      clearTimeout(this._slow);
+      this.state = 'error';
+    },
+    retry() {
+      this.nonce = Date.now();
+      this.beginLoad();
     },
 
     go(n)  { this.i = Math.min(Math.max(n, 0), this.slides.length - 1); },
@@ -456,7 +535,7 @@ createApp({
     const n = parseInt((location.hash || '').replace('#', ''), 10);
     if (n >= 1 && n <= this.slides.length) this.i = n - 1;
 
-    this.preload();
+    this.beginLoad();
     this.checkOrient();
     this.wake();
 
