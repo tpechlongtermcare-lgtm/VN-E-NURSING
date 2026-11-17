@@ -227,13 +227,12 @@ body{
 
     <div class="err" v-if="state==='error'">
       <h3>這一頁的圖片讀不到</h3>
-      <code>抓取：{{ imgUrl }}
-頁面：{{ href }}
-base：{{ baseURI }}
-回應：{{ diag || '偵測中…' }}</code>
+      <code>{{ absUrl }}
+HTTP {{ diag || '…' }}</code>
       <p>
-        檢查 <b>slides/</b> 資料夾裡有沒有 <b>{{ cur.file }}{{ ext }}</b>，
-        以及大小寫是否一致（GitHub Pages 有分大小寫）。
+        404 就是這個網址沒有檔案。確認 <b>slides/{{ cur.file }}{{ ext }}</b> 真的上傳了，
+        而且大小寫一模一樣（GitHub Pages 分大小寫，<b>.JPG</b> 不等於 <b>.jpg</b>）。
+        副檔名不同的話，改 CONFIG 裡的 <b>ext</b>。
       </p>
       <button @click="retry">重試</button>
     </div>
@@ -373,8 +372,6 @@ createApp({
       i: 0,
       state: 'loading',   // loading | ok | error
       slow: false,
-      baseIdx: 0,         // 路徑容錯：試過的 base 之一
-      baseLocked: false,  // 有一張成功載入後就鎖定 base
       nonce: 0,
       ext: CONFIG.ext,
       href: location.href,
@@ -396,13 +393,12 @@ createApp({
   computed: {
     cur() { return this.slides[this.i] || { title: '', ch: '', file: '' }; },
 
-    // 大多數情況第一個就對（一般相對路徑）。
-    // 少數主機不給結尾斜線或把站台掛在根目錄，才會用到後面兩個。
-    bases() {
-      const p = location.pathname;
-      return ['', p.replace(/\/?$/, '/'), '/'];
-    },
     imgUrl() { return this.src(this.cur); },
+    // 錯誤訊息印完整網址，才看得出到底去哪裡抓
+    absUrl() {
+      try { return new URL(this.imgUrl, document.baseURI).href; }
+      catch (e) { return this.imgUrl; }
+    },
     groups() {
       const out = [];
       this.slides.forEach((s, idx) => {
@@ -432,10 +428,10 @@ createApp({
   methods: {
     src(s) {
       const q = this.nonce ? '?r=' + this.nonce : '';
-      return this.bases[this.baseIdx] + CONFIG.dir + s.file + CONFIG.ext + q;
+      return CONFIG.dir + s.file + CONFIG.ext + q;
     },
     thumb(s) {
-      return this.bases[this.baseIdx] + CONFIG.dir + CONFIG.thumbPre + s.file + CONFIG.ext;
+      return CONFIG.dir + CONFIG.thumbPre + s.file + CONFIG.ext;
     },
     thumbFail(e, s) {
       // 沒有縮圖檔就退回用原圖
@@ -453,16 +449,10 @@ createApp({
     onLoad() {
       this.state = 'ok';
       this.slow = false;
-      this.baseLocked = true;      // 這個 base 可用，之後不再換
       clearTimeout(this._slow);
       this.preload();              // 載完目前這張才去預抓下一張
     },
     onErr() {
-      // 還沒確定過可用路徑的話，依序換下一個 base 再試
-      if (!this.baseLocked && this.baseIdx < this.bases.length - 1) {
-        this.baseIdx++;
-        return;
-      }
       clearTimeout(this._slow);
       this.state = 'error';
       this.probe();
