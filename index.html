@@ -230,7 +230,7 @@ body{
       <code>{{ absUrl }}
 HTTP {{ diag || '…' }}</code>
       <p>
-        404 就是這個網址沒有檔案。確認 <b>slides/{{ cur.file }}{{ ext }}</b> 真的上傳了，
+        404 就是這個網址沒有檔案。確認 <b>{{ dir }}{{ cur.file }}{{ ext }}</b> 真的上傳了，
         而且大小寫一模一樣（GitHub Pages 分大小寫，<b>.JPG</b> 不等於 <b>.jpg</b>）。
         副檔名不同的話，改 CONFIG 裡的 <b>ext</b>。
       </p>
@@ -311,7 +311,8 @@ HTTP {{ diag || '…' }}</code>
    ① CONFIG — 圖檔放在哪、副檔名是什麼
    ═══════════════════════════════════════════════════════════════ */
 const CONFIG = {
-  dir       : 'slides/',   // 圖片資料夾（結尾要有斜線）
+  dir       : '',          // 圖片放在哪：跟 index.html 同一層就留空字串，
+                           //   放在子資料夾就寫 'slides/'（結尾要有斜線）
   ext       : '.jpg',      // 副檔名
   thumbPre  : 't',         // 縮圖前綴：slides/t01.jpg
                            //   → 沒有縮圖檔也沒關係，會自動改用原圖
@@ -374,6 +375,7 @@ createApp({
       slow: false,
       nonce: 0,
       ext: CONFIG.ext,
+      dir: CONFIG.dir,
       href: location.href,
       baseURI: document.baseURI,
       diag: '',
